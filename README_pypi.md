@@ -13,13 +13,25 @@ interior fat, and quantifies per-muscle, per-side body composition.
 ```
 full-body CT  ->  L3 localizer (presence-gated sliding window)  ->  z-crop
               ->  muscle segmentation (nnU-Net, in-Python)       ->  raw labels
-              ->  strip interior fat (IMAT)                       ->  TOTAL muscle seg
+              ->  strip interior fat (intramuscular adipose tissue) ->  TOTAL muscle seg
               ->  per-muscle / per-side composition metrics       ->  JSON
 ```
 
 Muscles: psoas, quadratus lumborum, erector spinae / multifidus. The
-muscle/low-attenuation split is a per-scan, per-muscle GMM crossover; interior
-fat (HU < −30) is removed to form the total-muscle segmentation.
+muscle/low-attenuation split is a per-scan, per-muscle Gaussian Mixture Model
+(GMM) crossover; interior fat (< −30 Hounsfield units, HU) is removed to form the
+total-muscle segmentation.
+
+> **GMM crossover** — a muscle's HU values form two overlapping populations,
+> denser normal muscle and lower-HU fatty muscle. The GMM fits one bell curve to
+> each and puts the split where they cross, so the threshold adapts to each
+> patient rather than using a fixed cutoff.
+
+**Models.** The L3 localizer is a Residual Network (ResNet-18) slice encoder
+with a bidirectional Gated Recurrent Unit (GRU) over the superior–inferior axis,
+a soft-argmax boundary head, and a presence head. The muscle segmenter is a 3D
+UNet (no-new-UNet / nnU-Net, full-resolution configuration) run with
+sliding-window inference in Python.
 
 ---
 
@@ -84,7 +96,7 @@ Per muscle × side (L/R), in mm² (`mean`, `median`, `std`, `n_slices`):
 
 - `muscle_csa` — total-muscle cross-sectional area (edge-outlier trimmed)
 - `fat_pv_muscle_csa` — low-attenuation ("fat partial-volume") muscle
-- `intramuscular_fat_csa` — solidly-fat interior (IMAT)
+- `intramuscular_fat_csa` — solidly-fat interior (intramuscular adipose tissue, IMAT)
 - `outer_edge_pv_fat_csa` — partial-volume boundary rim
 
 ---

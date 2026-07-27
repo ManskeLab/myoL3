@@ -12,12 +12,12 @@ full-body CT (.nii.gz)
       ▼
   muscle segmentation (nnU-Net, in-Python)  ──►  raw label map
       ▼
-  strip interior fat (IMAT)  ──►  TOTAL muscle segmentation (final)
+  strip interior fat (intramuscular adipose tissue)  ──►  TOTAL muscle segmentation (final)
 ```
 
 The muscle segmenter downloads weights from HuggingFace and runs
-inference on the full CT first to get L3 bounds. 
-The segmentation model is then ran on the cropped L3 bounded image to label the muscles.The fat step removes solidly-fat interior voxels (HU < −30, inside the eroded muscle core) from each muscle.
+inference on the full CT (Computed Tomography) first to get L3 bounds.
+The segmentation model is then run on the cropped L3-bounded image to label the muscles. The fat step removes solidly-fat interior voxels (< −30 Hounsfield units, HU, inside the eroded muscle core) from each muscle.
 
 ## Example (L3 axial slice)
 
@@ -27,11 +27,17 @@ The segmentation model is then ran on the cropped L3 bounded image to label the 
 
 - **Muscle segmentation** — psoas (red), quadratus lumborum (green), erector
   spinae / multifidus (blue).
-- **Body-composition map** — each muscle is split into compartments: muscle
-  (pink), low-attenuation "fat-PV" muscle and intramuscular fat (teal/blue), and
-  the partial-volume boundary rim (green outline). The muscle/low-attenuation
-  split is a per-scan, per-muscle GMM crossover; interior fat (HU < −30) is
+- **Body-composition map** — each muscle is split into four compartments: muscle,
+  low-attenuation ("fat partial-volume") muscle, intramuscular fat, and the
+  partial-volume boundary rim. The muscle / low-attenuation split is a per-scan,
+  per-muscle Gaussian Mixture Model (GMM), interior fat (< −30 HU) is
   removed to form the total-muscle segmentation.
+
+  > **Gaussian Mixture Model (GMM)** — a muscle's HU values form two overlapping populations,
+  > denser normal muscle and lower-HU fatty muscle. The GMM fits one bell curve
+  > to each and puts the split where they cross, so the threshold adapts to each
+  > patient's muscle attenuation instead of a fixed cutoff (a myosteatotic
+  > patient's split lands much lower).
 
 ## Installation
 
@@ -69,6 +75,17 @@ export MYOL3_SEGMENTER_CKPT=/path/to/muscle_seg.pth
 
 Resolution order per model: `--*-ckpt` flag → env var → `myol3-install` path
 (`~/.myol3/config.json`) → Hugging Face download.
+
+## Models
+
+- **L3 localizer** (`l3_localizer.pt`) — a Residual Network (ResNet-18) encodes
+  each axial slice, a bidirectional Gated Recurrent Unit (GRU) runs over the
+  superior–inferior axis, a soft-argmax head regresses the top and bottom L3
+  slice, and a presence head gates out slices that contain no L3. Applied as a
+  sliding window over the full volume.
+- **Muscle segmenter** (`muscle_seg.pth`) — a 3D UNet (no-new-UNet / nnU-Net,
+  full-resolution configuration) run with sliding-window inference, loaded and
+  driven directly in Python.
 
 ## Usage
 
@@ -116,6 +133,6 @@ myol3.run("fullbody_ct.nii.gz", "total_muscle_seg.nii.gz",
 - `LOCALIZER_HW / LOCALIZER_WIN / LOCALIZER_STRIDE` — localizer input size and sliding-window params.
 - `LOCALIZER_MAX_MM` — hard cap on the L3 crop length (mm) so a spurious vote can't stretch it.
 - `WL / WW` — CT window for the localizer.
-- `FAT_HU / FAT_ERODE` — IMAT threshold and interior-core erosion for fat stripping.
-- `LAMA_HI` — muscle / low-attenuation split HU; `None` = per-scan, per-muscle GMM crossover (adaptive).
+- `FAT_HU / FAT_ERODE` — intramuscular-fat threshold and interior-core erosion for fat stripping.
+- `LAMA_HI` — muscle / low-attenuation split HU; `None` = per-scan, per-muscle Gaussian Mixture Model (GMM) (adaptive).
 - `SEG_TILE_STEP / SEG_USE_MIRRORING` — nnU-Net sliding-window step and test-time mirroring.
