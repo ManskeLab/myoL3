@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "myoL3"
+version = "0.1.0"
+description = "Automated L3-level trunk muscle analysis from CT: resample, localize/crop L3, segment muscle."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "numpy",
+    "SimpleITK",
+    "torch",
+    "torchvision",
+    "scipy",
+    "nnunetv2>=2.4",
+    "huggingface_hub",
+]
+
+[project.scripts]
+myol3 = "myol3.cli:main"
+myol3-install = "myol3.install:main"
+
+[tool.setuptools.packages.find]
+include = ["myol3*"]
