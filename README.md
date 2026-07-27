@@ -1,6 +1,6 @@
 # myoL3
 
-Automated **L3-level trunk-muscle analysis from CT**. You give it a full-body CT;
+Automated **L3-level trunk-muscle analysis from CT**. The tool takes a full-body abdominal CT,
 it resamples to the working resolution, localizes the L3 level and crops to it,
 then runs muscle segmentation on the crop.
 
@@ -15,10 +15,9 @@ full-body CT (.nii.gz)
   strip interior fat (IMAT)  ──►  TOTAL muscle segmentation (final)
 ```
 
-The muscle segmenter loads a self-contained nnU-Net checkpoint and runs
-`nnUNetPredictor` via `manual_initialization` (same style as VeinSeg) — no
-nnU-Net folder layout or CLI needed. The fat step removes solidly-fat interior
-voxels (HU < −30, inside the eroded muscle core) from each muscle.
+The muscle segmenter downloads weights from HuggingFace and runs
+inference on the full CT first to get L3 bounds. 
+The segmentation model is then ran on the cropped L3 bounded image to label the muscles.The fat step removes solidly-fat interior voxels (HU < −30, inside the eroded muscle core) from each muscle.
 
 ## Example (L3 axial slice)
 
@@ -36,10 +35,16 @@ voxels (HU < −30, inside the eroded muscle core) from each muscle.
 
 ## Installation
 
-Not on PyPI yet — clone and install editable:
+Install PyTorch first ([pytorch.org](https://pytorch.org)), then:
 
 ```bash
-git clone <this-repo-url> myoL3
+pip install myoL3
+```
+
+Or clone and install editable for development:
+
+```bash
+git clone https://github.com/Manskelab/myoL3 myoL3
 cd myoL3
 pip install -e .
 ```
@@ -48,7 +53,7 @@ pip install -e .
 
 Both checkpoints live in one Hugging Face repo
 ([`YousifKhoury/myoL3`](https://huggingface.co/YousifKhoury/myoL3)):
-`l3_localizer.pt` (localizer) and `muscle_seg.pth` (self-contained nnU-Net
+`l3_localizer.pt` (L3 bounds localizer) and `muscle_seg.pth` (UNet muscle
 segmenter). Download them once:
 
 ```bash
@@ -71,9 +76,9 @@ Resolution order per model: `--*-ckpt` flag → env var → `myol3-install` path
 # full pipeline: localize L3 -> crop -> segment -> strip fat -> total muscle seg
 myol3 -i fullbody_ct.nii.gz -o total_muscle_seg.nii.gz
 
-# also save the crop, the removed-fat map, and per-muscle fat metrics
+# also save the crop, the 4-compartment map, and per-muscle/side metrics
 myol3 -i fullbody_ct.nii.gz -o total_muscle_seg.nii.gz \
-      --save-crop l3_crop.nii.gz --save-fat fat.nii.gz --save-fat-csv fat.csv
+      --save-crop l3_crop.nii.gz --save-comp composition.nii.gz --save-metrics metrics.json
 
 # localize + crop only (no segmentation model needed)
 myol3 -i fullbody_ct.nii.gz --save-crop l3_crop.nii.gz
@@ -90,8 +95,8 @@ myol3 -i ct.nii.gz -o seg.nii.gz \
 | `-i, --input` | full-body CT (required) |
 | `-o, --output` | **total** muscle seg (fat stripped); omit to only localize/crop |
 | `--save-crop` | also write the L3-cropped CT |
-| `--save-fat` | also write the removed interior-fat label map |
-| `--save-fat-csv` | also write per-muscle fat metrics (volume, fraction, mean HU) |
+| `--save-comp` | also write the 4-compartment map (`muscle*10 + compartment`) |
+| `--save-metrics` | also write per-muscle/side metrics (`.json`) |
 | `--localizer-ckpt` / `--segmenter-ckpt` | checkpoint overrides |
 | `--pad` | extra slices each side of the L3 crop |
 | `--device` | `cpu` or `cuda` (auto if unset) |
@@ -101,7 +106,7 @@ Python API:
 ```python
 import myol3
 myol3.run("fullbody_ct.nii.gz", "total_muscle_seg.nii.gz",
-          save_crop="l3_crop.nii.gz", save_fat_csv="fat.csv")
+          save_crop="l3_crop.nii.gz", save_metrics="metrics.json")
 ```
 
 ## Configuration
@@ -111,11 +116,6 @@ myol3.run("fullbody_ct.nii.gz", "total_muscle_seg.nii.gz",
 - `LOCALIZER_HW / LOCALIZER_WIN / LOCALIZER_STRIDE` — localizer input size and sliding-window params.
 - `LOCALIZER_MAX_MM` — hard cap on the L3 crop length (mm) so a spurious vote can't stretch it.
 - `WL / WW` — CT window for the localizer.
-- `FAT_HU / FAT_ERODE` — fat threshold and interior-core erosion for fat stripping.
+- `FAT_HU / FAT_ERODE` — IMAT threshold and interior-core erosion for fat stripping.
+- `LAMA_HI` — muscle / low-attenuation split HU; `None` = per-scan, per-muscle GMM crossover (adaptive).
 - `SEG_TILE_STEP / SEG_USE_MIRRORING` — nnU-Net sliding-window step and test-time mirroring.
-
-## Status
-
-- ✅ Resample → L3 localize (presence-gated sliding window, span-capped) → z-crop.
-- ✅ Muscle segmentation — in-Python nnU-Net (`manual_initialization`, VeinSeg-style).
-- ✅ Fat stripping → total muscle segmentation + per-muscle fat metrics.

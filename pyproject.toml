@@ -1,14 +1,25 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=67", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "myoL3"
 version = "0.1.0"
-description = "Automated L3-level trunk muscle analysis from CT: resample, localize/crop L3, segment muscle."
-readme = "README.md"
+description = "Automated L3-level trunk-muscle analysis from CT: localize/crop L3, segment muscle, quantify fat."
+readme = "README_pypi.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
+authors = [
+    { name = "Yousif Al-Khoury" },
+]
+keywords = ["CT", "muscle segmentation", "L3", "sarcopenia", "body composition",
+            "myosteatosis", "nnU-Net", "medical imaging", "deep learning"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Programming Language :: Python :: 3",
+]
 dependencies = [
     "numpy",
     "SimpleITK",
@@ -18,6 +29,11 @@ dependencies = [
     "nnunetv2>=2.4",
     "huggingface_hub",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Manskelab/myoL3"
+Repository = "https://github.com/Manskelab/myoL3"
+"Model weights" = "https://huggingface.co/YousifKhoury/myoL3"
 
 [project.scripts]
 myol3 = "myol3.cli:main"
