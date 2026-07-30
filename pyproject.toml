@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myoL3"
-version = "0.1.3"
+version = "0.1.2"
 description = "Automated L3-level trunk-muscle analysis from CT: localize/crop L3, segment muscle, quantify fat."
 readme = "README_pypi.md"
 requires-python = ">=3.9"
