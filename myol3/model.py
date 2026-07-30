@@ -37,6 +37,7 @@ class L3BoundaryLocalizer(nn.Module):
         self.rnn = nn.GRU(feat_dim, rnn_hidden, rnn_layers, batch_first=True,
                           bidirectional=True, dropout=0.1 if rnn_layers > 1 else 0.0)
         self.head = nn.Linear(2 * rnn_hidden, 2)
+        self.presence_head = nn.Linear(2 * rnn_hidden, 1)  # P(slice is L3), per slice
 
     def _encode(self, flat):
         if self.encode_chunk and self.encode_chunk < flat.shape[0]:
@@ -50,14 +51,18 @@ class L3BoundaryLocalizer(nn.Module):
         seq, _ = self.rnn(feats)
         logits = self.head(seq)
         top, bot = logits[..., 0], logits[..., 1]
+        pres_slice = self.presence_head(seq).squeeze(-1)   # (B, Z) presence logit
         if mask is not None:
             fill = torch.finfo(top.dtype).min
             top = top.masked_fill(mask == 0, fill)
             bot = bot.masked_fill(mask == 0, fill)
         p_top, p_bot = torch.softmax(top, 1), torch.softmax(bot, 1)
         idx = torch.arange(z, device=x.device, dtype=p_top.dtype)
+        pres_pool = pres_slice if mask is None else \
+            pres_slice.masked_fill(mask == 0, torch.finfo(pres_slice.dtype).min)
         return {"p_top": p_top, "p_bot": p_bot,
-                "z_top": (p_top * idx).sum(1), "z_bot": (p_bot * idx).sum(1)}
+                "z_top": (p_top * idx).sum(1), "z_bot": (p_bot * idx).sum(1),
+                "pres_slice": pres_slice, "presence": pres_pool.max(dim=1).values}
 
 
 def window_ct(arr: np.ndarray, wl: float = 50.0, ww: float = 400.0) -> np.ndarray:
