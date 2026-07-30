@@ -22,7 +22,8 @@ SEGMENTER_HF_REPO = "YousifKhoury/myoL3"
 SEGMENTER_HF_FILE = "muscle_seg.pth"
 
 # ── Processing parameters (set to what the models were trained at) ───────────
-TARGET_SPACING = None         # (sx, sy, sz) mm to resample the input to, or None = native
+TARGET_SPACING = (0.5, 0.5, 0.625)  # (sx, sy, sz) mm — resample every input to this
+                                    # first (the working resolution); None = keep native
 LOCALIZER_HW = 192            # in-plane size the localizer sees
 LOCALIZER_WIN = 96            # sliding-window length (slices)
 LOCALIZER_STRIDE = 24         # sliding-window stride (slices)
