@@ -67,7 +67,7 @@ class MuscleSegmenter:
             device=self.device,
             verbose=False,
             verbose_preprocessing=False,
-            allow_tqdm=False,
+            allow_tqdm=True,          # sliding-window tile progress bar
         )
         self.predictor.manual_initialization(
             network=network,
