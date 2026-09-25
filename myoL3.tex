@@ -1,0 +1,219 @@
+\documentclass{article}
+\usepackage{graphicx}   % images
+\usepackage{amsmath}    % equations
+\usepackage{booktabs}   % nicer tables
+\usepackage{hyperref}
+
+\title{myoL3: An Automated Pipeline for L3-Level Trunk-Muscle
+Segmentation and Body-Composition Quantification from CT}
+\author{Yousif Al-Khoury}
+\date{August 2026}
+
+\begin{document}
+
+\maketitle
+
+% =====================================================================
+\section{Introduction}
+% Bullet-point structure only — expand into prose later.
+\begin{itemize}
+  \item Clinical motivation: skeletal-muscle wasting (sarcopenia / ICU-acquired
+        weakness) is common and prognostic; muscle quantity and quality at the
+        L3 vertebral level are established surrogates for whole-body composition.
+  \item Why L3: single axial slice / short slab at L3 correlates with total
+        skeletal-muscle mass; standard in body-composition research.
+  \item Current bottleneck: manual or semi-automatic L3 selection and muscle
+        tracing is slow, requires expertise, and is a barrier to large cohorts
+        and to longitudinal (repeated-scan) analysis.
+  \item Gap: need a fully automated, reproducible pipeline that (i) finds L3 in
+        an arbitrary CT, (ii) segments the trunk muscles, and (iii) reports both
+        muscle \emph{quantity} (area) and \emph{quality} (fat infiltration).
+  \item Contribution: \textbf{myoL3}, an installable pipeline that localizes L3,
+        segments psoas / quadratus lumborum / erector spinae--multifidus,
+        strips intramuscular fat, and outputs per-muscle, per-side
+        body-composition metrics; distributed as a package with batch/HPC
+        tooling for cohort-scale processing.
+  \item State the specific aims / questions addressed by this paper.
+\end{itemize}
+
+% =====================================================================
+\section{Methods}
+
+\subsection{Study cohort and imaging}
+% TEMPLATE — fill cohort specifics.
+Describe the source cohort, inclusion/exclusion criteria, number of patients
+and scans, timepoints (e.g.\ admission, interim, discharge), scanner(s), and
+acquisition parameters. State how reference (ground-truth) L3 bounds and muscle
+segmentations were obtained for the validation subset, and by whom.
+
+\subsection{Pipeline overview}
+myoL3 processes a single CT volume through four stages: (1) resampling to a
+fixed working resolution, (2) L3-level localization and axial cropping, (3)
+trunk-muscle segmentation on the crop, and (4) fat stripping and
+body-composition quantification. Each stage is described below. The pipeline is
+implemented in Python and distributed as an installable package; model weights
+are retrieved from a public repository on first use.
+
+\subsection{Preprocessing}
+Each input volume is reoriented to a common anatomical convention (RAI, so that
+the axial axis is superior--inferior) and resampled to an isotropic in-plane and
+near-isotropic through-plane target spacing of
+0.5\,mm\,$\times$\,0.5\,mm\,$\times$\,0.625\,mm
+using linear interpolation, matching the resolution the models were trained on.
+Resampling to a fixed spacing normalizes heterogeneous acquisitions and yields
+directly comparable cross-sectional areas across scans.
+
+\subsection{L3 localization}
+L3 localization is posed as a one-dimensional boundary-regression problem along
+the superior--inferior ($z$) axis. Each axial slice is windowed to a
+soft-tissue range and resized in-plane to a fixed size, then encoded by a
+Residual Network (ResNet-18) slice encoder. A bidirectional Gated Recurrent Unit
+(GRU) models the sequence of slice features along $z$, giving each slice a
+context-aware representation. Three heads are attached: two boundary heads that,
+via a softmax over $z$ and a soft-argmax (expected-index) operation, predict the
+continuous superior and inferior boundaries of the L3 body, and a per-slice
+\emph{presence} head that predicts whether each slice belongs to L3. The
+soft-argmax construction guarantees a single, ordered, non-empty interval by
+design.
+
+Because full CT volumes are longer than the training window, inference uses a
+sliding window over $z$: each window's boundary distributions are accumulated
+into global-$z$ votes, weighted by the window's presence probability (which
+suppresses windows over the chest, pelvis, or legs) and by the sharpness of its
+boundary distributions. The final bounds are selected by anchoring on the
+presence peak---the most reliable signal---and taking the strongest boundary
+votes on each side within a physical span cap of 43.75\,mm
+($\approx$L3 body height), which prevents spurious distant votes from stretching
+the crop. The volume is then cropped in $z$ to the predicted L3 slab; in-plane
+field of view is preserved.
+
+\subsection{Muscle segmentation}
+The L3 crop is segmented with a 3D UNet (nnU-Net, full-resolution
+configuration) that labels the psoas, quadratus lumborum, and erector
+spinae--multifidus. The trained network is loaded from a self-contained
+checkpoint and driven in-process (the network's own plans, preprocessing, and
+sliding-window tiled inference with Gaussian weighting and test-time mirroring),
+so segmentation preprocessing is identical to training. The label map is
+returned on the crop grid.
+
+\subsection{Fat stripping and compartmental quantification}
+For each muscle, the mask is eroded in-plane by two voxels to define an interior
+``core'', separating the true muscle interior from the one-to-two-voxel boundary
+rim that reads as fat by partial-volume averaging. Voxels are then classified by
+attenuation into four compartments:
+\begin{itemize}
+  \item \textbf{Muscle} --- core voxels at or above an adaptive
+        muscle/low-attenuation threshold (see below).
+  \item \textbf{Fat--partial-volume (low-attenuation) muscle} --- core voxels
+        between $-30$\,HU and the adaptive threshold.
+  \item \textbf{Intramuscular fat} --- core voxels below $-30$\,HU (the
+        standard intramuscular-adipose-tissue threshold).
+  \item \textbf{Outer-edge partial-volume fat} --- the eroded boundary rim.
+\end{itemize}
+The muscle/low-attenuation boundary is set \emph{per scan and per muscle} by
+fitting a two-component Gaussian mixture model (GMM) to that muscle's core
+attenuation histogram (by expectation--maximization) and taking the crossover
+between the two Gaussians. This adapts the threshold to each patient's muscle
+attenuation, which is shifted downward in myosteatosis; the fixed
+$-30$\,HU fat threshold is retained for cross-scan comparability of the fat
+compartment. The \emph{total-muscle} segmentation is the original mask with the
+intramuscular-fat voxels removed; this is the final segmentation used for
+area quantification.
+
+\subsection{Body-composition metrics}
+Left and right sides are separated at the patient midline, defined as the
+$x$-centroid of all muscle voxels. For each muscle and side, per-slice
+cross-sectional area (voxel count $\times$ in-plane pixel area) is computed for
+each compartment. For the total-muscle cross-sectional area, contiguous outlier
+slices at the superior and inferior edges of the muscle's $z$-extent---where
+tapering and partial-volume effects make segmentation unreliable---are trimmed
+using a robust (median/median-absolute-deviation) criterion before averaging.
+Reported per muscle $\times$ side are the mean, median, and standard deviation of
+the total-muscle cross-sectional area (edge-trimmed) and of the three fat
+compartments (untrimmed), all in mm$^2$, together with the
+adaptive threshold used.
+
+\subsection{Implementation and batch processing}
+The pipeline is packaged as an installable Python tool with a command-line
+interface and programmatic API; model weights are hosted on a public model
+repository and fetched by an installer. For cohort-scale processing, a batch
+layer submits one job per scan on a Slurm HPC cluster and a compilation step
+aggregates the per-scan metrics into cohort-level tables (a wide muscle-area
+table and a tidy long table of all compartments).
+
+\subsection{Statistical analysis}
+% TEMPLATE — fill/confirm.
+Describe the analyses: descriptive statistics of the cohort; agreement between
+automated and reference measurements (validation); longitudinal comparisons
+across timepoints (e.g.\ paired tests of muscle area between admission and
+discharge); left/right comparisons; and correlation analyses (e.g.\ muscle loss
+vs.\ fat change). State the outlier-handling procedure (e.g.\ removal of
+segmentation failures and influential points by Cook's distance), the software
+used, and the significance threshold.
+
+% =====================================================================
+\section{Results}
+% Bullet-point structure + validation template.
+\begin{itemize}
+  \item \textbf{Cohort description.} Number of patients/scans per timepoint;
+        demographics; scan-quality summary; number excluded and why.
+  \item \textbf{L3 localization validation.} Agreement of predicted vs.\
+        reference L3 bounds (e.g.\ boundary error in slices/mm, interval IoU) on
+        the held-out set. \emph{[Table/figure placeholder.]}
+  \item \textbf{Muscle segmentation validation.} Overlap of automated vs.\
+        reference masks per muscle (e.g.\ Dice, Hausdorff). \emph{[Table
+        placeholder.]}
+  \item \textbf{Cross-sectional-area agreement.} Automated vs.\ reference CSA
+        per muscle (Bland--Altman / correlation). \emph{[Figure placeholder.]}
+  \item \textbf{Longitudinal muscle change.} Muscle area across timepoints;
+        paired admission$\rightarrow$discharge change per muscle and total.
+        \emph{[Table placeholder.]}
+  \item \textbf{Body-composition / fat.} Fat-compartment findings and their
+        relationship (or lack thereof) to muscle change. \emph{[Placeholder.]}
+  \item \textbf{Left/right.} Side differences and asymmetry, if reported.
+  \item \textbf{Runtime / feasibility.} Per-scan time, cohort throughput.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\caption{Validation of automated measurements against reference (template).}
+\label{tab:validation}
+\begin{tabular}{lcccc}
+\toprule
+Muscle & Dice & Boundary err.\ (mm) & CSA bias (mm$^2$) & CSA LoA \\
+\midrule
+Psoas               & -- & -- & -- & -- \\
+Quadratus lumborum  & -- & -- & -- & -- \\
+Erector spinae--multifidus & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =====================================================================
+\section{Discussion}
+% Bullet-point structure only.
+\begin{itemize}
+  \item \textbf{Summary of findings} relative to the aims.
+  \item \textbf{Comparison} with existing automated L3 / body-composition tools;
+        what myoL3 adds (end-to-end localization + segmentation + adaptive fat
+        quantification; open, installable, HPC-ready).
+  \item \textbf{Methodological note.} The per-scan adaptive GMM threshold makes
+        the muscle/low-attenuation compartments \emph{not directly comparable}
+        across scans with different thresholds; fixed-threshold intramuscular
+        fat and mean muscle attenuation are the comparable quality metrics.
+  \item \textbf{Limitations.} Sensitivity to input resolution (upsampling coarse
+        scans yields interpolated, not real, detail); reliability of the
+        smallest muscle (quadratus lumborum); single-institution / retrospective
+        design; validation-set size.
+  \item \textbf{Future work.} Broader multi-site validation; scan-quality
+        screening; extension to additional levels/muscles; prospective
+        clinical-outcome association.
+  \item \textbf{Conclusion.} One-paragraph takeaway.
+\end{itemize}
+
+% =====================================================================
+% \section*{Data and code availability}
+% myoL3 is available as a package (installation, model weights, and batch
+% tooling). State repository/DOI here.
+
+\end{document}

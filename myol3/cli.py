@@ -16,6 +16,8 @@ def main():
     ap.add_argument("--save-crop", help="also write the L3-cropped CT here")
     ap.add_argument("--save-comp", help="also write the 4-compartment map (muscle*10+comp)")
     ap.add_argument("--save-metrics", help="also write full per-muscle/side metrics (.json)")
+    ap.add_argument("--cropped", action="store_true",
+                    help="input is already cropped to L3: skip localization")
     ap.add_argument("--localizer-ckpt", help="override L3 localizer checkpoint")
     ap.add_argument("--segmenter-ckpt", help="override muscle segmentation checkpoint")
     ap.add_argument("--pad", type=int, default=0, help="extra slices each side of the L3 crop")
@@ -25,7 +27,8 @@ def main():
     run(input_path=args.input, output_path=args.output,
         localizer_ckpt=args.localizer_ckpt, segmenter_ckpt=args.segmenter_ckpt,
         device=args.device, pad=args.pad, save_crop=args.save_crop,
-        save_comp=args.save_comp, save_metrics=args.save_metrics)
+        save_comp=args.save_comp, save_metrics=args.save_metrics,
+        cropped=args.cropped)
 
 
 if __name__ == "__main__":

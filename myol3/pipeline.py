@@ -10,14 +10,17 @@ from .preprocess import load_rai, resample_to_spacing, write
 
 
 def run(input_path, output_path, localizer_ckpt=None, segmenter_ckpt=None,
-        device=None, pad=0, save_crop=None, save_comp=None, save_metrics=None):
+        device=None, pad=0, save_crop=None, save_comp=None, save_metrics=None,
+        cropped=False):
     """Segment L3-level muscle from a full-body CT.
 
-    input_path  : full-body CT (.nii/.nii.gz)
+    input_path  : full-body CT (.nii/.nii.gz), or an already L3-cropped CT
+                  when cropped=True
     output_path : TOTAL muscle segmentation (interior fat stripped); None to skip
     save_crop   : optional path to also write the L3-cropped CT
     save_comp   : optional path to write the 4-compartment map (muscle*10+comp)
     save_metrics: optional path to write full per-muscle/side metrics (.json)
+    cropped     : input is already cropped to L3 -> skip the localizer
     """
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -25,12 +28,16 @@ def run(input_path, output_path, localizer_ckpt=None, segmenter_ckpt=None,
     rai = load_rai(input_path)
     rai = resample_to_spacing(rai, config.TARGET_SPACING)
 
-    # 2) localize L3 and crop in z
-    from .localize import L3Localizer
-    loc = L3Localizer(config.resolve_checkpoint("localizer", localizer_ckpt), device)
-    crop, (z0, z1) = loc.crop(rai, pad=pad)
-    print(f"L3 crop: z {z0}-{z1} ({z1 - z0 + 1} slices), size {crop.GetSize()}")
-    if save_crop:
+    # 2) localize L3 and crop in z (skipped when the input is already cropped)
+    if cropped:
+        crop, (z0, z1) = rai, (0, rai.GetSize()[2] - 1)
+        print(f"using pre-cropped input: {z1 - z0 + 1} slices, size {crop.GetSize()}")
+    else:
+        from .localize import L3Localizer
+        loc = L3Localizer(config.resolve_checkpoint("localizer", localizer_ckpt), device)
+        crop, (z0, z1) = loc.crop(rai, pad=pad)
+        print(f"L3 crop: z {z0}-{z1} ({z1 - z0 + 1} slices), size {crop.GetSize()}")
+    if save_crop and not cropped:
         write(crop, save_crop)
         print(f"  wrote crop -> {save_crop}")
 

@@ -65,6 +65,9 @@ export MYOL3_SEGMENTER_CKPT=/shared/models/myol3/muscle_seg.pth
 myol3 -i fullbody_ct.nii.gz -o total_muscle_seg.nii.gz \
       --save-comp composition.nii.gz --save-metrics metrics.json
 
+# already cropped to L3 yourself -> skip localization
+myol3 -i my_l3_crop.nii.gz -o total_muscle_seg.nii.gz --cropped
+
 # localize + crop only (no segmentation model needed)
 myol3 -i fullbody_ct.nii.gz --save-crop l3_crop.nii.gz
 ```
@@ -73,6 +76,7 @@ myol3 -i fullbody_ct.nii.gz --save-crop l3_crop.nii.gz
 |---|---|
 | `-i, --input` | full-body CT (`.nii` / `.nii.gz`) — required |
 | `-o, --output` | total muscle segmentation (interior fat stripped); omit to only localize/crop |
+| `--cropped` | input is already cropped to L3; skip the localizer |
 | `--save-crop` | also write the L3-cropped CT |
 | `--save-comp` | also write the 4-compartment map (`muscle*10 + compartment`) |
 | `--save-metrics` | also write per-muscle / per-side metrics (`.json`) |
